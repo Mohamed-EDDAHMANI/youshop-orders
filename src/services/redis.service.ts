@@ -7,6 +7,58 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   private redis: Redis;
 
+  constructor() {
+    this.initRedis();
+  }
+
+  private initRedis() {
+    const host = process.env.REDIS_HOST || 'redis';
+    const port = Number(process.env.REDIS_PORT) || 6379;
+
+    const options: RedisOptions = {
+      host,
+      port,
+      retryStrategy: (times) => {
+        this.logger.warn(`Redis reconnect attempt #${times}`);
+        return Math.min(times * 100, 2000);
+      },
+    };
+
+    try {
+      this.redis = new Redis(options);
+    } catch (e) {
+      this.logger.error(`Failed to create Redis client: ${e.message}`);
+    }
+
+    this.redis.on('connect', async () => {
+      this.logger.log('Redis connected ✅');
+      const serviceHost = process.env.SERVICE_HOST || 'orders-service';
+      const servicePort = Number(process.env.TCP_PORT) || 3004;
+      
+      try {
+        await this.registerServiceInfo(
+          'orders-service',
+          serviceHost,
+          servicePort,
+          's4'
+        );
+      } catch (e) {
+        this.logger.error(`Registration failed: ${e.message}`);
+      }
+    });
+
+     this.redis.on('error', (err) => {
+      this.logger.error(`Redis error ❌: ${err.message}`);
+    });
+  }
+
+  /*
+  onModuleInit() {
+     // Disabled onModuleInit to prefer constructor initialization if hooks are failing
+  }
+  */
+  onModuleInit() { }
+
   async registerServiceInfo(serviceName: string, host: string, port: number, routeKey: string) {
     const instanceId = `${serviceName}:${process.pid}`;
     const serviceInfo = {
@@ -14,37 +66,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       instances: [
         { id: instanceId, host, port }
       ],
-      endpoints: ORDERS_ENDPOINTS
+      endpoints: ORDERS_ENDPOINTS.map(e => ({
+        pattern: e.pattern.source,
+        roles: e.roles,
+      }))
     };
     await this.redis.set(`serviceKey:${routeKey}`, JSON.stringify(serviceInfo));
     this.logger.log(`Registered all service info: serviceKey:${routeKey}`);
-  }
-
-  onModuleInit() {
-    const options: RedisOptions = {
-      host: process.env.REDIS_HOST || 'redis',
-      port: Number(process.env.REDIS_PORT) || 6379,
-      retryStrategy: (times) => {
-        this.logger.warn(`Redis reconnect attempt #${times}`);
-        return Math.min(times * 100, 2000);
-      },
-    };
-
-    this.redis = new Redis(options);
-
-    this.redis.on('connect', async () => {
-      this.logger.log('Redis connected ✅');
-      await this.registerServiceInfo(
-        'orders-service',
-        process.env.HOST || 'orders-service',
-        Number(process.env.PORT) || 3004,
-        's4'
-      );
-    });
-
-    this.redis.on('error', (err) => {
-      this.logger.error('Redis error ❌', err);
-    });
   }
 
   onModuleDestroy() {

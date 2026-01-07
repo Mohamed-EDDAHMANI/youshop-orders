@@ -1,6 +1,15 @@
+import { IsInt, IsNotEmpty, IsNumber, IsString, IsUUID, Min } from 'class-validator';
+
 export class CreateOrderItemDto {
-	orderId: string;
-	productId: string;
-	quantity: number;
-	priceAtPurchase: number;
+  @IsString()
+  @IsNotEmpty()
+  productId: string;
+
+  @IsInt()
+  @Min(1)
+  quantity: number;
+
+  @IsNumber()
+  @Min(0)
+  priceAtPurchase: number;
 }
